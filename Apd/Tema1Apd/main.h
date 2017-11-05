@@ -13,6 +13,7 @@ struct snake
 	struct coord tail;
 	int encoding;
 	char direction;
+	int moved;
 };
 
 void print_world(char *file_name, int num_snakes, struct snake *snakes,
@@ -37,7 +38,6 @@ void find_tail(int line, int col, int num_lines, int num_cols, int **world, int 
 char opposite(char direction);
 
 // move the head of the snakes and detects a collision
-
-int move_head(struct coord *head, char direction, int **world, int num_lines, int num_cols, int forward);
+int move_head(struct snake *head, char direction, int **world, int num_lines, int num_cols, int forward);
 
 #endif

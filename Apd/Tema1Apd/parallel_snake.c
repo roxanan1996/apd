@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <omp.h>
 
+omp_lock_t lck;
+
 void connected(int *line, int *col, int num_lines, int num_cols) {
 	if (*line < 0) {
 				*line = num_lines - 1;
@@ -86,10 +88,10 @@ char opposite(char direction) {
 	return opposite_direction;
 }
 
-int move_head(struct coord *head, char direction, int **world, int num_lines, int num_cols, int forward) {
+int move_head(struct snake *snake, char direction, int **world, int num_lines, int num_cols, int forward) {
 
-	int line = head->line;
-	int col = head->col;
+	int line = snake->head.line;
+	int col = (snake->head).col;
 	int collision_detected = 1;
 	switch(direction) {
 		case 'N': line--; break;
@@ -100,14 +102,20 @@ int move_head(struct coord *head, char direction, int **world, int num_lines, in
 
 	connected(&line, &col, num_lines, num_cols);
 
+
+///muta 
+	omp_set_lock(&lck);
 	if (forward && !world[line][col]) {
-		world[line][col] = world[head->line][head->col];
+		world[line][col] = world[snake->head.line][snake->head.col];
+		snake->head.line = line;
+		snake->head.col = col;
 		collision_detected = 0;
+		snake->moved = 1;
 	}
+	omp_unset_lock(&lck);
 
 	// change the head anyway
-	head->line = line;
-	head->col = col;
+	
 
 	if (collision_detected)
 		return 1;
@@ -129,6 +137,8 @@ void run_simulation(int num_lines, int num_cols, int **world, int num_snakes,
 	int collision;
 	int **viz = (int**) malloc(sizeof(int) * num_lines);
 
+	struct snake *sn = (struct snake *)malloc(num_snakes * sizeof(struct snake));
+
 	for (i = 0; i < num_cols; ++i) {
 		viz[i] = (int*) calloc(num_cols, sizeof(int));
 	}
@@ -139,6 +149,14 @@ void run_simulation(int num_lines, int num_cols, int **world, int num_snakes,
 		col = snakes[i].head.col;
 		viz[line][col] = 1;
 		find_tail(line, col, num_lines, num_cols, world, viz, &snakes[i].tail);
+	}
+
+	#pragma omp parallel for
+	for (i = 0; i < num_snakes; ++i) {
+		sn[i].head.line = snakes[i].head.line;
+		sn[i].head.col = snakes[i].head.col;
+		sn[i].tail.line = snakes[i].tail.line;
+		snakes[i].moved = 0;
 	}
 
 	for (s = 0; s < step_count; ++s) {
@@ -152,9 +170,9 @@ void run_simulation(int num_lines, int num_cols, int **world, int num_snakes,
 			
 			#pragma omp barrier
 
-			#pragma omp for private (collision)
+			#pragma omp for private (collision) 
 			for (i = 0; i < num_snakes; ++i) {
-				collision = move_head(&snakes[i].head, snakes[i].direction, world, num_lines, num_cols, 1);
+				collision = move_head(&snakes[i], snakes[i].direction, world, num_lines, num_cols, 1);
 		
 				if (collision) {
 					collision_detected = 1;
@@ -167,17 +185,24 @@ void run_simulation(int num_lines, int num_cols, int **world, int num_snakes,
 			for (i = 0; i < num_snakes; ++i) {				
 				if (collision_detected) {
 					world[snakes[i].tail.line][snakes[i].tail.col] = snakes[i].encoding;
-					world[snakes[i].head.line][snakes[i].head.col] = 0;			
-					move_head(&snakes[i].head, opposite(snakes[i].direction), world, num_lines, num_cols, 0);
+					if (snakes[i].moved) {
+						world[snakes[i].head.line][snakes[i].head.col] = 0;
+					}			
+					
+					// move_head(&snakes[i].head, opposite(snakes[i].direction), world, num_lines, num_cols, 0);
+					snakes[i].head.line = sn[i].head.line;
+					snakes[i].head.col = sn[i].head.col; 
 					world[snakes[i].head.line][snakes[i].head.col] = snakes[i].encoding;
 				} else {
 					update_tail(&snakes[i].tail, num_lines, num_cols, world, snakes[i].encoding);
+					sn[i].head.line = snakes[i].head.line;
+					sn[i].head.col = snakes[i].head.col;
 				}
 			}
 
 			#pragma omp barrier	
 		}
-
+		//printf("col %d\n", collision_detected);
 		if (collision_detected) {
 			break;
 		}
